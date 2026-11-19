@@ -144,6 +144,7 @@
         :scale="scale"
         :animations="animations"
         :swipe="swipe"
+        :split-landscape-pages="splitLandscapePages"
         @menu="toggleToolbars()"
         @jump-previous="jumpToPrevious()"
         @jump-next="jumpToNext()"
@@ -244,7 +245,7 @@
               <v-list-item>
                 <settings-select
                   :items="pageLayouts"
-                  v-model="pageLayout"
+                  v-model="pageLayoutSetting"
                   :label="$t('bookreader.settings.page_layout')"
                 />
               </v-list-item>
@@ -348,6 +349,14 @@ import jsFileDownloader from 'js-file-downloader'
 import screenfull from 'screenfull'
 import {ItemTypes} from '@/types/items'
 import {getBookReadRouteFromMedia} from '@/functions/book-format'
+import {
+  applyReaderLayoutSetting,
+  isSplit2PageAvailable,
+  nextReaderLayoutSetting,
+  readerLayoutSetting,
+  ReaderLayoutSetting,
+  SPLIT_2PAGE_LAYOUT,
+} from '@/functions/reader-pages'
 
 export default Vue.extend({
   name: 'DivinaReader',
@@ -389,6 +398,7 @@ export default Vue.extend({
       goToPage: 1,
       settings: {
         pageLayout: PagedReaderLayout.SINGLE_PAGE,
+        splitLandscapePages: false,
         swipe: false,
         alwaysFullscreen: false,
         animations: true,
@@ -414,10 +424,6 @@ export default Vue.extend({
         value: x,
       })),
       continuousScaleTypes: Object.values(ContinuousScaleType).map(x => ({
-        text: this.$i18n.t(x),
-        value: x,
-      })),
-      pageLayouts: Object.values(PagedReaderLayout).map(x => ({
         text: this.$i18n.t(x),
         value: x,
       })),
@@ -459,6 +465,7 @@ export default Vue.extend({
     this.readingDirection = this.$store.state.persistedState.webreader.readingDirection
     this.animations = this.$store.state.persistedState.webreader.animations
     this.pageLayout = this.$store.state.persistedState.webreader.paged.pageLayout
+    this.splitLandscapePages = this.$store.state.persistedState.webreader.paged.splitLandscapePages
     this.swipe = this.$store.state.persistedState.webreader.swipe
     this.alwaysFullscreen = this.$store.state.persistedState.webreader.alwaysFullscreen
     this.scale = this.$store.state.persistedState.webreader.paged.scale
@@ -556,6 +563,19 @@ export default Vue.extend({
     currentPage(): PageDtoWithUrl {
       return this.pages[this.page - 1]
     },
+    pageLayouts(): Array<{text: string, value: ReaderLayoutSetting, disabled?: boolean}> {
+      return [
+        ...Object.values(PagedReaderLayout).map(x => ({
+          text: this.$i18n.t(x).toString(),
+          value: x,
+        })),
+        {
+          text: this.$i18n.t('bookreader.settings.split_landscape_pages').toString(),
+          value: SPLIT_2PAGE_LAYOUT,
+          disabled: !isSplit2PageAvailable(this.readingDirection),
+        },
+      ]
+    },
 
     animations: {
       get: function (): boolean {
@@ -641,6 +661,25 @@ export default Vue.extend({
           this.settings.pageLayout = pageLayout
           this.$store.commit('setWebreaderPagedPageLayout', pageLayout)
         }
+      },
+    },
+    pageLayoutSetting: {
+      get: function (): ReaderLayoutSetting {
+        return readerLayoutSetting(this.pageLayout, this.splitLandscapePages, this.readingDirection)
+      },
+      set: function (setting: ReaderLayoutSetting): void {
+        const selected = applyReaderLayoutSetting(setting)
+        this.pageLayout = selected.pageLayout
+        this.splitLandscapePages = selected.splitLandscapePages
+      },
+    },
+    splitLandscapePages: {
+      get: function (): boolean {
+        return this.settings.splitLandscapePages
+      },
+      set: function (splitLandscapePages: boolean): void {
+        this.settings.splitLandscapePages = splitLandscapePages === true
+        this.$store.commit('setWebreaderPagedSplitLandscapePages', this.settings.splitLandscapePages)
       },
     },
     swipe: {
@@ -857,10 +896,9 @@ export default Vue.extend({
     },
     cyclePageLayout() {
       if (this.continuousReader) return
-      const enumValues = Object.values(PagedReaderLayout)
-      const i = (enumValues.indexOf(this.settings.pageLayout) + 1) % (enumValues.length)
-      this.pageLayout = enumValues[i]
-      const text = this.$i18n.t(this.pageLayout)
+      const setting = nextReaderLayoutSetting(this.pageLayoutSetting, this.readingDirection)
+      this.pageLayoutSetting = setting
+      const text = this.pageLayouts.find(x => x.value === setting)?.text
       this.sendNotification(`${this.$t('bookreader.cycling_page_layout')}: ${text}`)
     },
     toggleToolbars() {

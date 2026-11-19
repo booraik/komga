@@ -26,12 +26,17 @@
                        :reverse-transition="animations ? undefined : false"
       >
         <div class="full-height d-flex flex-column justify-center">
-          <div :class="`d-flex flex-row${flipDirection ? '-reverse' : ''} justify-center px-0 mx-0`">
-            <img v-for="(page, j) in spread"
+          <div :class="[
+            `d-flex flex-row${flipDirection ? '-reverse' : ''} justify-center px-0 mx-0`,
+            {'split-page-container': isSplitSpread(spread)},
+          ]"
+               :style="isSplitSpread(spread) ? {minHeight: '100vh', alignItems: 'center'} : undefined">
+            <img v-for="page in spread"
                  :alt="`Page ${page.number}`"
-                 :key="`spread${i}-${j}`"
+                 :key="`spread${i}-${pageKey(page)}`"
                  :src="page.url"
-                 :class="imgClass(spread)"
+                 :class="imgClass(spread, page)"
+                 :style="imgStyle(page)"
                  class="img-fit-all"
             />
           </div>
@@ -82,6 +87,7 @@ import {PagedReaderLayout, ScaleType} from '@/types/enum-reader'
 import {shortcutsLTR, shortcutsRTL, shortcutsVertical} from '@/functions/shortcuts/paged-reader'
 import {PageDtoWithUrl} from '@/types/komga-books'
 import {buildSpreads} from '@/functions/book-spreads'
+import {buildReaderPages, findSpreadIndex, pageHalfStyle, ReaderPage, readerPageKey} from '@/functions/reader-pages'
 
 export default Vue.extend({
   name: 'PagedReader',
@@ -89,7 +95,7 @@ export default Vue.extend({
     return {
       logger: 'PagedReader',
       carouselPage: 0,
-      spreads: [] as PageDtoWithUrl[][],
+      spreads: [] as ReaderPage[][],
     }
   },
   props: {
@@ -121,11 +127,16 @@ export default Vue.extend({
       type: String as () => ScaleType,
       required: true,
     },
+    splitLandscapePages: {
+      type: Boolean,
+      default: false,
+    },
   },
   watch: {
     pages: {
-      handler(val) {
-        this.spreads = buildSpreads(val, this.pageLayout)
+      handler() {
+        // split pages shift the slides, so the current slide must be resynced even if the page number is unchanged
+        this.rebuildSpreads()
       },
       immediate: true,
     },
@@ -141,17 +152,21 @@ export default Vue.extend({
     },
     page(val, old) {
       this.$debug('[watch:page]', `old:${old}`, `new:${val}`)
-      const spreadIndex = this.toSpreadIndex(val)
-      this.$debug('[watch:page]', `toSpreadIndex:${spreadIndex}`)
+      const spreadIndex = findSpreadIndex(this.spreads, val, this.carouselPage)
+      this.$debug('[watch:page]', `spreadIndex:${spreadIndex}`)
       this.carouselPage = spreadIndex
     },
     pageLayout: {
-      handler(val) {
-        const current = this.page
-        this.spreads = buildSpreads(this.pages, val)
-        this.carouselPage = this.toSpreadIndex(current)
+      handler() {
+        this.rebuildSpreads()
       },
       immediate: true,
+    },
+    readingDirection() {
+      if (this.splitLandscapePages) this.rebuildSpreads()
+    },
+    splitLandscapePages() {
+      this.rebuildSpreads()
     },
   },
   created() {
@@ -194,15 +209,36 @@ export default Vue.extend({
     canNext(): boolean {
       return this.currentSlide < this.slidesCount
     },
-    isDoublePages(): boolean {
-      return this.pageLayout === PagedReaderLayout.DOUBLE_PAGES || this.pageLayout === PagedReaderLayout.DOUBLE_NO_COVER
-    },
   },
   methods: {
     keyPressed(e: KeyboardEvent) {
       this.shortcuts[e.key]?.execute(this)
     },
-    imgClass(spread: PageDtoWithUrl[]): string {
+    computeSpreads(): ReaderPage[][] {
+      const readerPages = buildReaderPages(this.pages, {
+        splitLandscapePages: this.splitLandscapePages,
+        pageLayout: this.pageLayout,
+        readingDirection: this.readingDirection,
+      })
+      return buildSpreads(readerPages, this.pageLayout)
+    },
+    rebuildSpreads() {
+      const current = this.page
+      this.spreads = this.computeSpreads()
+      this.carouselPage = findSpreadIndex(this.spreads, current)
+    },
+    pageKey(page: ReaderPage): string {
+      return readerPageKey(page)
+    },
+    isSplitSpread(spread: ReaderPage[]): boolean {
+      return spread.some(page => page.half !== undefined)
+    },
+    imgStyle(page: ReaderPage): Record<string, string> | undefined {
+      return pageHalfStyle(page, this.scale)
+    },
+    imgClass(spread: PageDtoWithUrl[], page: ReaderPage): string {
+      // halves are sized by imgStyle
+      if (page.half) return ''
       const double = spread.length > 1
       switch (this.scale) {
         case ScaleType.WIDTH:
@@ -255,23 +291,6 @@ export default Vue.extend({
       } else {
         this.$emit('jump-next')
       }
-    },
-    toSpreadIndex(i: number): number {
-      this.$debug('[toSpreadIndex]', `i:${i}`, `isDoublePages:${this.isDoublePages}`)
-      if (this.spreads.length > 0) {
-        if (this.isDoublePages) {
-          for (let j = 0; j < this.spreads.length; j++) {
-            for (let k = 0; k < this.spreads[j].length; k++) {
-              if (this.spreads[j][k].number === i) {
-                return j
-              }
-            }
-          }
-        } else {
-          return i - 1
-        }
-      }
-      return i - 1
     },
   },
 })
