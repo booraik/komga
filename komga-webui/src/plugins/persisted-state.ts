@@ -9,6 +9,7 @@ export const persistedModule: Module<any, any> = {
       paged: {
         scale: '',
         pageLayout: '',
+        splitLandscapePages: false,
       },
       continuous: {
         scale: '',
@@ -105,6 +106,9 @@ export const persistedModule: Module<any, any> = {
     },
     setWebreaderPagedPageLayout(state, val) {
       state.webreader.paged.pageLayout = val
+    },
+    setWebreaderPagedSplitLandscapePages(state, val) {
+      state.webreader.paged.splitLandscapePages = val
     },
     setWebreaderContinuousScale(state, val) {
       state.webreader.continuous.scale = val
